@@ -1,33 +1,36 @@
 package com.example.myprojectishe;
 
-import android.content.ContentValues;
-import android.database.Cursor;
-import android.database.sqlite.SQLiteDatabase;
 import android.os.Bundle;
-import android.widget.Button;
 import android.widget.Toast;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 
 import com.example.myprojectishe.R;
+import com.google.android.material.button.MaterialButton;
 
+import java.sql.Connection;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
+import java.sql.SQLException;
+import java.sql.Statement;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 public class AdminActivity extends AppCompatActivity {
     private RecyclerView recyclerAdmin;
-    private Button buttonCreate, buttonUpdate, buttonDelete;
-    private com.example.myprojectishe.DatabaseHelper dbHelper;
+    private MaterialButton buttonCreate, buttonUpdate, buttonDelete;
     private com.example.myprojectishe.ProductAdapter productAdapter;
     private List<Product> productList;
+    private final ExecutorService executorService = Executors.newSingleThreadExecutor();
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_admin);
 
-        dbHelper = new DatabaseHelper(this);
         recyclerAdmin = findViewById(R.id.recycler_admin);
         buttonCreate = findViewById(R.id.button_create);
         buttonUpdate = findViewById(R.id.button_update);
@@ -41,17 +44,25 @@ public class AdminActivity extends AppCompatActivity {
         loadProducts();
 
         buttonCreate.setOnClickListener(v -> {
-            SQLiteDatabase db = dbHelper.getWritableDatabase();
-            ContentValues values = new ContentValues();
-            values.put("name", "Новый товар");
-            values.put("price", 999.99);
-            values.put("created_by", 1);
-            long productId = db.insert("products", null, values);
-            if (productId != -1) {
-                loadProducts();
-            } else {
-                Toast.makeText(this, "Ошибка при создании товара", Toast.LENGTH_SHORT).show();
-            }
+            String insertSql = "INSERT INTO products (name, price, created_by, is_active) VALUES (?, ?, ?, ?)";
+            executorService.execute(() -> {
+                try (Connection conn = DatabaseHelper.getConnection();
+                     PreparedStatement pstmt = conn.prepareStatement(insertSql, Statement.RETURN_GENERATED_KEYS)) {
+                    pstmt.setString(1, "Новый товар");
+                    pstmt.setDouble(2, 999.99);
+                    pstmt.setInt(3, 1); // Assuming user with ID 1 exists and is the admin
+                    pstmt.setBoolean(4, true);
+                    int affectedRows = pstmt.executeUpdate();
+                    if (affectedRows > 0) {
+                        runOnUiThread(this::loadProducts); // Reload products after creation
+                    } else {
+                        runOnUiThread(() -> Toast.makeText(this, "Ошибка при создании товара", Toast.LENGTH_SHORT).show());
+                    }
+                } catch (SQLException e) {
+                    e.printStackTrace();
+                    runOnUiThread(() -> Toast.makeText(this, "Ошибка базы данных: " + e.getMessage(), Toast.LENGTH_SHORT).show());
+                }
+            });
         });
 
         buttonUpdate.setOnClickListener(v -> {
@@ -59,11 +70,23 @@ public class AdminActivity extends AppCompatActivity {
                 Toast.makeText(this, "Список товаров пуст", Toast.LENGTH_SHORT).show();
                 return;
             }
-            SQLiteDatabase db = dbHelper.getWritableDatabase();
-            ContentValues values = new ContentValues();
-            values.put("name", "Обновленный товар");
-            db.update("products", values, "product_id = ?", new String[]{String.valueOf(productList.get(0).getId())});
-            loadProducts();
+            String updateSql = "UPDATE products SET name = ? WHERE product_id = ?";
+            executorService.execute(() -> {
+                try (Connection conn = DatabaseHelper.getConnection();
+                     PreparedStatement pstmt = conn.prepareStatement(updateSql)) {
+                    pstmt.setString(1, "Обновленный товар");
+                    pstmt.setInt(2, productList.get(0).getId());
+                    int affectedRows = pstmt.executeUpdate();
+                    if (affectedRows > 0) {
+                        runOnUiThread(this::loadProducts); // Reload products after update
+                    } else {
+                        runOnUiThread(() -> Toast.makeText(this, "Ошибка при обновлении товара", Toast.LENGTH_SHORT).show());
+                    }
+                } catch (SQLException e) {
+                    e.printStackTrace();
+                    runOnUiThread(() -> Toast.makeText(this, "Ошибка базы данных: " + e.getMessage(), Toast.LENGTH_SHORT).show());
+                }
+            });
         });
 
         buttonDelete.setOnClickListener(v -> {
@@ -71,24 +94,56 @@ public class AdminActivity extends AppCompatActivity {
                 Toast.makeText(this, "Список товаров пуст", Toast.LENGTH_SHORT).show();
                 return;
             }
-            SQLiteDatabase db = dbHelper.getWritableDatabase();
-            db.delete("products", "product_id = ?", new String[]{String.valueOf(productList.get(0).getId())});
-            loadProducts();
+            String deleteSql = "DELETE FROM products WHERE product_id = ?";
+            executorService.execute(() -> {
+                try (Connection conn = DatabaseHelper.getConnection();
+                     PreparedStatement pstmt = conn.prepareStatement(deleteSql)) {
+                    pstmt.setInt(1, productList.get(0).getId());
+                    int affectedRows = pstmt.executeUpdate();
+                    if (affectedRows > 0) {
+                        runOnUiThread(this::loadProducts); // Reload products after deletion
+                    } else {
+                        runOnUiThread(() -> Toast.makeText(this, "Ошибка при удалении товара", Toast.LENGTH_SHORT).show());
+                    }
+                } catch (SQLException e) {
+                    e.printStackTrace();
+                    runOnUiThread(() -> Toast.makeText(this, "Ошибка базы данных: " + e.getMessage(), Toast.LENGTH_SHORT).show());
+                }
+            });
         });
     }
 
     private void loadProducts() {
         productList.clear();
-        SQLiteDatabase db = dbHelper.getReadableDatabase();
-        Cursor cursor = db.query("products", new String[]{"product_id", "name", "price"},
-                "is_active = 1", null, null, null, null);
-        while (cursor.moveToNext()) {
-            int id = cursor.getInt(0);
-            String name = cursor.getString(1);
-            double price = cursor.getDouble(2);
-            productList.add(new Product(id, name, price));
-        }
-        cursor.close();
-        productAdapter.notifyDataSetChanged();
+        String selectProductsSql = "SELECT product_id, name, price FROM products WHERE is_active = TRUE";
+        executorService.execute(() -> {
+            try (Connection conn = DatabaseHelper.getConnection();
+                 PreparedStatement pstmt = conn.prepareStatement(selectProductsSql);
+                 ResultSet rs = pstmt.executeQuery()) {
+
+                List<Product> loadedProducts = new ArrayList<>();
+                while (rs.next()) {
+                    int id = rs.getInt("product_id");
+                    String name = rs.getString("name");
+                    double price = rs.getDouble("price");
+                    loadedProducts.add(new Product(id, name, price));
+                }
+
+                runOnUiThread(() -> {
+                    productList.addAll(loadedProducts);
+                    productAdapter.notifyDataSetChanged();
+                });
+
+            } catch (SQLException e) {
+                e.printStackTrace();
+                runOnUiThread(() -> Toast.makeText(this, "Ошибка загрузки товаров: " + e.getMessage(), Toast.LENGTH_SHORT).show());
+            }
+        });
+    }
+
+    @Override
+    protected void onDestroy() {
+        super.onDestroy();
+        executorService.shutdown();
     }
 }

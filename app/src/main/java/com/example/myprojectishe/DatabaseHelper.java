@@ -1,63 +1,71 @@
 package com.example.myprojectishe;
 
-import android.content.Context;
-import android.database.sqlite.SQLiteDatabase;
-import android.database.sqlite.SQLiteOpenHelper;
+import java.sql.Connection;
+import java.sql.DriverManager;
+import java.sql.SQLException;
 
-public class DatabaseHelper extends SQLiteOpenHelper {
-    private static final String DATABASE_NAME = "pvz_delivery.db";
-    private static final int DATABASE_VERSION = 1;
+public class DatabaseHelper {
 
-    public DatabaseHelper(Context context) {
-        super(context, DATABASE_NAME, null, DATABASE_VERSION);
+    private static final String DB_ENGINE = "postgresql";
+    private static final String DB_USERNAME = "alex";
+    private static final String DB_PASS = "Alex1987!";
+    private static final String DB_HOST = "79.174.88.242";
+    private static final String DB_PORT = "18781";
+    private static final String DB_NAME = "java";
+
+    private static final String DB_URL = "jdbc:" + DB_ENGINE + "://" + DB_HOST + ":" + DB_PORT + "/" + DB_NAME;
+
+    public static Connection getConnection() throws SQLException {
+        return DriverManager.getConnection(DB_URL, DB_USERNAME, DB_PASS);
     }
 
-    @Override
-    public void onCreate(SQLiteDatabase db) {
-        db.execSQL("CREATE TABLE roles (" +
-                "role_id INTEGER PRIMARY KEY AUTOINCREMENT, " +
-                "role_name TEXT NOT NULL UNIQUE, " +
-                "description TEXT)");
-        
-        db.execSQL("CREATE TABLE users (" +
-                "user_id INTEGER PRIMARY KEY AUTOINCREMENT, " +
-                "username TEXT NOT NULL UNIQUE, " +
-                "password_hash TEXT NOT NULL, " +
-                "email TEXT NOT NULL UNIQUE, " +
-                "phone TEXT, " +
-                "created_at TEXT DEFAULT (datetime('now')), " +
-                "is_active INTEGER DEFAULT 1)");
-        
-        db.execSQL("CREATE TABLE user_roles (" +
+    public static void createTables() {
+        String createRolesTable = "CREATE TABLE IF NOT EXISTS roles (" +
+                "role_id SERIAL PRIMARY KEY, " +
+                "role_name VARCHAR(255) NOT NULL UNIQUE, " +
+                "description TEXT)";
+
+        String createUsersTable = "CREATE TABLE IF NOT EXISTS users (" +
+                "user_id SERIAL PRIMARY KEY, " +
+                "username VARCHAR(255) NOT NULL UNIQUE, " +
+                "password_hash VARCHAR(255) NOT NULL, " +
+                "email VARCHAR(255) NOT NULL UNIQUE, " +
+                "phone VARCHAR(255), " +
+                "created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, " +
+                "is_active BOOLEAN DEFAULT TRUE)";
+
+        String createUserRolesTable = "CREATE TABLE IF NOT EXISTS user_roles (" +
                 "user_id INTEGER, " +
                 "role_id INTEGER, " +
                 "PRIMARY KEY (user_id, role_id), " +
                 "FOREIGN KEY (user_id) REFERENCES users(user_id), " +
-                "FOREIGN KEY (role_id) REFERENCES roles(role_id))");
-        
-        db.execSQL("CREATE TABLE products (" +
-                "product_id INTEGER PRIMARY KEY AUTOINCREMENT, " +
-                "name TEXT NOT NULL, " +
+                "FOREIGN KEY (role_id) REFERENCES roles(role_id))";
+
+        String createProductsTable = "CREATE TABLE IF NOT EXISTS products (" +
+                "product_id SERIAL PRIMARY KEY, " +
+                "name VARCHAR(255) NOT NULL, " +
                 "description TEXT, " +
-                "price REAL NOT NULL, " +
+                "price DECIMAL(10, 2) NOT NULL, " +
                 "stock_quantity INTEGER NOT NULL DEFAULT 0, " +
                 "created_by INTEGER, " +
-                "created_at TEXT DEFAULT (datetime('now')), " +
-                "is_active INTEGER DEFAULT 1, " +
-                "FOREIGN KEY (created_by) REFERENCES users(user_id))");
+                "created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, " +
+                "is_active BOOLEAN DEFAULT TRUE, " +
+                "FOREIGN KEY (created_by) REFERENCES users(user_id))";
 
-        db.execSQL("INSERT INTO roles (role_name, description) VALUES " +
+        String insertRoles = "INSERT INTO roles (role_name, description) VALUES " +
                 "('admin', 'Полный доступ'), " +
                 "('customer', 'Покупатель'), " +
-                "('courier', 'Курьер')");
-    }
+                "('courier', 'Курьер') " +
+                "ON CONFLICT (role_name) DO NOTHING"; // Prevent duplicate inserts on subsequent runs
 
-    @Override
-    public void onUpgrade(SQLiteDatabase db, int oldVersion, int newVersion) {
-        db.execSQL("DROP TABLE IF EXISTS roles");
-        db.execSQL("DROP TABLE IF EXISTS users");
-        db.execSQL("DROP TABLE IF EXISTS user_roles");
-        db.execSQL("DROP TABLE IF EXISTS products");
-        onCreate(db);
+        try (Connection conn = getConnection()) {
+            conn.createStatement().execute(createRolesTable);
+            conn.createStatement().execute(createUsersTable);
+            conn.createStatement().execute(createUserRolesTable);
+            conn.createStatement().execute(createProductsTable);
+            conn.createStatement().execute(insertRoles);
+        } catch (SQLException e) {
+            e.printStackTrace();
+        }
     }
 }

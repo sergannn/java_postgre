@@ -1,10 +1,10 @@
 package com.example.myprojectishe;
 
 import android.content.Intent;
-import android.database.Cursor;
-import android.database.sqlite.SQLiteDatabase;
 import android.os.Bundle;
+import android.util.Log;
 import android.widget.Button;
+import android.widget.Toast;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.appcompat.widget.Toolbar;
 import androidx.recyclerview.widget.GridLayoutManager;
@@ -13,16 +13,23 @@ import androidx.recyclerview.widget.RecyclerView;
 import com.example.myprojectishe.R;
 import com.example.myprojectishe.CartManager;
 
+import java.sql.Connection;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
+import java.sql.ResultSetMetaData;
+import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 public class ProductsActivity extends AppCompatActivity {
     private RecyclerView recyclerProducts;
     private Button buttonCart;
-    private com.example.myprojectishe.DatabaseHelper dbHelper;
     private com.example.myprojectishe.ProductAdapter productAdapter;
     private List<Product> productList;
     private com.example.myprojectishe.CartManager CartManager;
+    private final ExecutorService executorService = Executors.newSingleThreadExecutor();
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -30,9 +37,8 @@ public class ProductsActivity extends AppCompatActivity {
         setContentView(R.layout.activity_products);
 
         Toolbar toolbar = findViewById(R.id.toolbar);
-        setSupportActionBar(toolbar);
+//        setSupportActionBar(toolbar);
 
-        dbHelper = new com.example.myprojectishe.DatabaseHelper(this);
         recyclerProducts = findViewById(R.id.recycler_products);
         buttonCart = findViewById(R.id.button_cart);
 
@@ -51,16 +57,49 @@ public class ProductsActivity extends AppCompatActivity {
     }
 
     private void loadProducts() {
-        SQLiteDatabase db = dbHelper.getReadableDatabase();
-        Cursor cursor = db.query("products", new String[]{"product_id", "name", "price"},
-                "is_active = 1", null, null, null, null);
-        while (cursor.moveToNext()) {
-            int id = cursor.getInt(0);
-            String name = cursor.getString(1);
-            double price = cursor.getDouble(2);
-            productList.add(new Product(id, name, price));
-        }
-        cursor.close();
-        productAdapter.notifyDataSetChanged();
+        productList.clear();
+        String selectProductsSql = "SELECT product_id, name, price FROM products WHERE is_active = TRUE";
+        Log.d("ser",selectProductsSql);
+        executorService.execute(() -> {
+            try (Connection conn = DatabaseHelper.getConnection();
+                 PreparedStatement pstmt = conn.prepareStatement(selectProductsSql);
+                 ResultSet rs = pstmt.executeQuery()) {
+
+                List<Product> loadedProducts = new ArrayList<>();
+//                loadedProducts.add(new Product(2, "hanuta", 100));
+                Log.d("ser",rs.toString());
+                ResultSetMetaData metaData = rs.getMetaData();
+                int columnCount = metaData.getColumnCount();
+                StringBuilder columns = new StringBuilder("Columns: ");
+                for (int i = 1; i <= columnCount; i++) {
+                    columns.append(metaData.getColumnName(i)).append(", ");
+                }
+                Log.d("DB_RESULTS", columns.toString());
+
+                while (rs.next()) {
+                    int id = rs.getInt("product_id");
+
+                    String name = rs.getString("name");
+                    Log.d("DB_RESULTS",name);
+                    double price = rs.getDouble("price");
+                    loadedProducts.add(new Product(id, name, price));
+                }
+
+                runOnUiThread(() -> {
+                    productList.addAll(loadedProducts);
+                    productAdapter.notifyDataSetChanged();
+                });
+
+            } catch (SQLException e) {
+                e.printStackTrace();
+                runOnUiThread(() -> Toast.makeText(this, "Ошибка загрузки товаров: " + e.getMessage(), Toast.LENGTH_SHORT).show());
+            }
+        });
+    }
+
+    @Override
+    protected void onDestroy() {
+        super.onDestroy();
+        executorService.shutdown();
     }
 }

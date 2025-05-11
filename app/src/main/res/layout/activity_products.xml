@@ -28,6 +28,7 @@
         android:layout_alignParentBottom="true"
         android:layout_centerHorizontal="true"
         android:background="@drawable/ic_cart"
-        android:contentDescription="Корзина"/>
+        android:contentDescription="Корзина"
+        style="@android:style/Widget.Button"/>
 
 </RelativeLayout>
